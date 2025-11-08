@@ -3,10 +3,10 @@ import Header from "./components/Header";
 import AlgorithmSelector from "./components/AlgorithmSelector";
 import GeneratorForm from "./components/GeneratorForm";
 import Results from "./components/Results";
+import DataManager from "./components/DataManager";
+import PredictionsPanel from "./components/PredictionsPanel";
 
-// Local pseudo-"advanced" generator for demo purposes.
-// It uses weighted randomness, low-discrepancy shuffling and simple ensemble voting to emulate
-// sophisticated generation while running fully client-side. No guarantees, entertainment only.
+// Local pseudo generator. Backend will store data and insights; generation remains client-side for now.
 
 function mulberry32(a) {
   return function () {
@@ -58,7 +58,6 @@ function sobolShuffle(arr, rand) {
 }
 
 function generateSet(algorithm, rand) {
-  // Create dynamic weights to emulate hot/cold numbers and correlations
   const baseMain = Array.from({ length: 50 }, (_, i) => 1 + i);
   const baseEuro = Array.from({ length: 12 }, (_, i) => 1 + i);
 
@@ -71,7 +70,6 @@ function generateSet(algorithm, rand) {
     main = weightedSample(50, 5, weightsMain, rand);
     euro = weightedSample(12, 2, weightsEuro, rand);
   } else if (algorithm === "ml_ensemble") {
-    // Ensemble: average of multiple samplers with slight perturbations
     const voters = 5;
     const countsMain = new Map();
     const countsEuro = new Map();
@@ -87,12 +85,10 @@ function generateSet(algorithm, rand) {
     main = sobolShuffle(sortedMain, rand);
     euro = sobolShuffle(sortedEuro, rand);
   } else if (algorithm === "quantum") {
-    // Simulate quantum-inspired sampling by adding interference-like oscillations
     const qrand = () => (rand() + Math.sin(rand() * 6.283) * 0.25 + 1) % 1;
     main = weightedSample(50, 5, weightsMain.map((w, i) => w * (1 + Math.sin((i + 1) * 0.27))), qrand);
     euro = weightedSample(12, 2, weightsEuro.map((w, i) => w * (1 + Math.cos((i + 1) * 0.41))), qrand);
   } else {
-    // neural
     const state = lcg((rand() * 1e9) >>> 0);
     const nrand = () => ((state() >>> 0) % 1000) / 1000;
     main = weightedSample(50, 5, weightsMain.map((w, i) => w * (1 + (i % 5) * 0.03 + 0.15 * nrand())), nrand);
@@ -102,37 +98,45 @@ function generateSet(algorithm, rand) {
   return { main, euro };
 }
 
+function consensusSet(rand) {
+  const algos = ["statistical", "ml_ensemble", "quantum", "neural"];
+  const votesMain = new Map();
+  const votesEuro = new Map();
+
+  for (const a of algos) {
+    for (let b = 0; b < 4; b++) {
+      const s = generateSet(a, rand);
+      s.main.forEach((n) => votesMain.set(n, (votesMain.get(n) || 0) + 1));
+      s.euro.forEach((n) => votesEuro.set(n, (votesEuro.get(n) || 0) + 1));
+    }
+  }
+
+  const topMain = Array.from(votesMain.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map((x) => x[0]);
+  const topEuro = Array.from(votesEuro.entries()).sort((a, b) => b[1] - a[1]).slice(0, 2).map((x) => x[0]);
+
+  return {
+    main: sobolShuffle(topMain, rand),
+    euro: sobolShuffle(topEuro, rand),
+  };
+}
+
 export default function App() {
-  const [algorithm, setAlgorithm] = useState("statistical");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [lastSeed, setLastSeed] = useState("");
+  const [lastResult, setLastResult] = useState(null);
 
-  const handleGenerate = async ({ algorithm: alg, sets, seed, download }) => {
+  const API = import.meta.env.VITE_BACKEND_URL || "";
+
+  const handleGenerate = async ({ sets, seed }) => {
     setLoading(true);
-    setAlgorithm(alg);
     const prng = makePRNG(seed || "");
     const out = [];
-    for (let i = 0; i < sets; i++) out.push(generateSet(alg, prng));
+    for (let i = 0; i < sets; i++) out.push(consensusSet(prng));
     setResults(out);
+    setLastResult(out[0]);
     setLastSeed(seed || "");
     setLoading(false);
-
-    if (download) {
-      const lines = ["main1-main2-main3-main4-main5;euro1-euro2"]; // header
-      for (const s of out) {
-        lines.push(`${s.main.sort((a,b)=>a-b).join("-")};${s.euro.sort((a,b)=>a-b).join("-")}`);
-      }
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `eurojackpot_${alg}${seed ? `_seed-${seed}` : ""}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    }
   };
 
   const heroBg = useMemo(() => ({
@@ -141,6 +145,10 @@ export default function App() {
       "radial-gradient(900px 500px at 80% 0%, rgba(236,72,153,0.20), transparent)," +
       "radial-gradient(800px 400px at 50% 100%, rgba(251,191,36,0.15), transparent)",
   }), []);
+
+  const refreshAll = () => {
+    // placeholder for now: could trigger downstream effects
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -151,12 +159,16 @@ export default function App() {
         <main className="mx-auto max-w-6xl px-6 pb-16">
           <section className="mt-4">
             <div className="mb-5">
-              <AlgorithmSelector value={algorithm} onChange={setAlgorithm} />
+              <AlgorithmSelector />
             </div>
 
             <GeneratorForm onGenerate={handleGenerate} />
 
             <Results results={results} loading={loading} />
+
+            <DataManager api={API} onRefreshAll={refreshAll} />
+
+            <PredictionsPanel api={API} lastResult={lastResult} lastSeed={lastSeed} />
 
             {lastSeed && (
               <p className="mt-6 text-xs text-white/50">Seed usato: {lastSeed}</p>
