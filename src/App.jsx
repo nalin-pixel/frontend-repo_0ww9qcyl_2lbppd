@@ -3,11 +3,8 @@ import Header from "./components/Header";
 import AlgorithmSelector from "./components/AlgorithmSelector";
 import GeneratorForm from "./components/GeneratorForm";
 import Results from "./components/Results";
-import DataManager from "./components/DataManager";
-import PredictionsPanel from "./components/PredictionsPanel";
 
-// Local pseudo generator. Backend will store data and insights; generation remains client-side for now.
-
+// Local pseudo-random tools and consensus generator
 function mulberry32(a) {
   return function () {
     var t = (a += 0x6d2b79f5);
@@ -124,9 +121,6 @@ export default function App() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [lastSeed, setLastSeed] = useState("");
-  const [lastResult, setLastResult] = useState(null);
-
-  const API = import.meta.env.VITE_BACKEND_URL || "";
 
   const handleGenerate = async ({ sets, seed }) => {
     setLoading(true);
@@ -134,7 +128,6 @@ export default function App() {
     const out = [];
     for (let i = 0; i < sets; i++) out.push(consensusSet(prng));
     setResults(out);
-    setLastResult(out[0]);
     setLastSeed(seed || "");
     setLoading(false);
   };
@@ -145,10 +138,6 @@ export default function App() {
       "radial-gradient(900px 500px at 80% 0%, rgba(236,72,153,0.20), transparent)," +
       "radial-gradient(800px 400px at 50% 100%, rgba(251,191,36,0.15), transparent)",
   }), []);
-
-  const refreshAll = () => {
-    // placeholder for now: could trigger downstream effects
-  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -165,10 +154,6 @@ export default function App() {
             <GeneratorForm onGenerate={handleGenerate} />
 
             <Results results={results} loading={loading} />
-
-            <DataManager api={API} onRefreshAll={refreshAll} />
-
-            <PredictionsPanel api={API} lastResult={lastResult} lastSeed={lastSeed} />
 
             {lastSeed && (
               <p className="mt-6 text-xs text-white/50">Seed usato: {lastSeed}</p>
